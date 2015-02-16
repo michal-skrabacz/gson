@@ -1,0 +1,101 @@
+def buildVersionName = file('./version_name').getText()
+def buildVersionCode = file('./version_code').getText().toInteger()
+
+apply plugin: 'maven'
+
+android.libraryVariants.all { variant ->
+    def name = variant.buildType.name
+    if (name.equalsIgnoreCase("debug")) {
+        return; // Skip debug builds.
+    }
+
+    task("makeJar${variant.name.capitalize()}", type: Jar, dependsOn: variant.javaCompile) {
+        from files("build/intermediates/classes/${variant.name}")
+    }
+
+    task("moveJar${variant.name.capitalize()}", type: Copy) {
+        from('build/libs/')
+        into('build/outputs/jar/')
+        include('gson-realm.jar')
+        rename('gson-realm.jar', 'gson-realm-' + buildVersionName + '.jar')
+    }
+
+    task("jarAll") << {
+        tasks.makeJarRelease.execute()
+        tasks.moveJarRelease.execute()
+    }
+}
+
+android.libraryVariants.all { variant ->
+    def name = variant.buildType.name
+
+    if (name.equalsIgnoreCase("debug")) {
+        return; // Skip debug builds.
+    }
+
+    task("genJavadoc${variant.name.capitalize()}", type: Javadoc) {
+
+        title = "${project.name.capitalize()} ${buildVersionName} API"
+        source = files('src')
+
+        description "Generates Javadoc for $variant.name."
+
+        def androidJar = "${android.sdkDirectory}/platforms/${android.compileSdkVersion}/android.jar"
+        classpath = files(androidJar) + files("build/intermediates/classes/${variant.name}")
+
+        options {
+            encoding = "UTF-8"
+            links("http://docs.oracle.com/javase/7/docs/api/")
+            linksOffline("http://d.android.com/reference", "${android.sdkDirectory}/docs/reference");
+        }
+
+        exclude '**/internal/**/*.java', '**/internal/*.java'
+        exclude '**/BuildConfig.java'
+        exclude '**/R.java'
+        exclude '**/*.aidl'
+        exclude '**/*.xml'
+
+    }
+    task("bundleJavadoc${variant.name.capitalize()}", type: Jar) {
+        description "Bundles Javadoc into zip for $variant.name."
+        classifier = "javadoc"
+        into('build/outputs/jar/')
+        from tasks["genJavadoc${variant.name.capitalize()}"]
+    }
+
+    task("moveJavadoc${variant.name.capitalize()}", type: Copy) {
+        from('build/libs/')
+        into('build/outputs/jar/')
+        include('gson-realm.jar')
+        rename('gson-realm-javadoc.jar', 'gson-realm-' + buildVersionName + '-javadoc.jar')
+    }
+
+    task("javadocAll") << {
+        tasks.genJavadocRelease.execute()
+        tasks.bundleJavadocRelease.execute()
+        tasks.moveJavadocRelease.execute()
+    }
+}
+
+task sourcesJar(type: Copy) {
+    from('build/intermediates/bundles/release/')
+    into('build/outputs/')
+    include('classes.jar')
+    rename ('classes.jar', 'gson-realm-'+buildVersionName+'-sources.jar')
+}
+
+uploadArchives {
+    repositories.mavenDeployer {
+        pom.groupId = 'com.qm'
+        pom.artifactId = 'gson-realm'
+        pom.packaging = 'jar'
+        pom.version = buildVersionName
+        repository(url: rootProject.ext.localRepo)
+    }
+}
+
+artifacts {
+    archives file('build/outputs/jar/gson-realm-' + buildVersionName + '.jar')
+//    archives sourcesJar
+//    archives androidJavadocsJar
+}
